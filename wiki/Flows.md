@@ -14,6 +14,12 @@ See [How to Use This Repo](How-to-Use-This-Repo) for instructions on importing o
 |------|-------------|
 | [Hello World](Flows--Hello-World) | Minimal example demonstrating the NiFi Hub flow structure. Generates a FlowFile and logs its attributes. |
 
+### Data Generator
+
+| Flow | Description |
+|------|-------------|
+| [Postgres CDC Demo](Flows--Postgres-CDC-Demo) | Simulates random data generation (INSERTs, UPDATEs, DELETEs) across multiple tables for use with the CDC PostgreSQL Connector. |
+
 ---
 
 ## Flow Structure

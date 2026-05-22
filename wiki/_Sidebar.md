@@ -24,3 +24,4 @@
 
 **[Flows](Flows)**
 - [Hello World](Flows--Hello-World)
+- [Postgres CDC Demo](Flows--Postgres-CDC-Demo)

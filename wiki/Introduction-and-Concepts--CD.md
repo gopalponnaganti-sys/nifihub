@@ -1,6 +1,6 @@
 # CD Pipeline
 
-NiFi Hub has two CD mechanisms: **Flow Deploy** for testing flows against a live Snowflake runtime during PR review, and **Environment CD** for managing Openflow infrastructure declaratively as code.
+NiFi Hub has two CD mechanisms: **Flow Deploy** for testing flows against ephemeral Snowflake runtimes during PR review, and **Environment CD** for managing Openflow infrastructure declaratively as code.
 
 ---
 
@@ -9,22 +9,47 @@ NiFi Hub has two CD mechanisms: **Flow Deploy** for testing flows against a live
 **Workflow:** `flow-deploy.yml`
 **Trigger:** A maintainer with admin or maintain permission comments `deploy this flow` on a PR
 
-This workflow lets maintainers test a flow against a real Snowflake Openflow runtime before merging. It is intended as a validation step during PR review, not for production deployment.
+This workflow lets maintainers test a flow against a real Snowflake Openflow runtime before merging. It provisions an **ephemeral runtime**, deploys the flow, runs tests, and tears everything down automatically.
 
 ### What Happens
 
 1. The workflow identifies flow JSON files changed in the PR
-2. **Builds all extension bundles** and uploads the resulting NARs to the target runtime
-3. **Deploys each changed flow** as a process group on the runtime, using the runtime's REST API
-4. **Runs the flow's validation tests** (`flows/<bucket>/tests/test_<flow-name>.py`) against the deployed process group
-5. **Cleans up** the deployed process group and uploaded NARs (unless the comment includes "do not clean")
-6. **Posts a comment** on the PR with deployment details, processor/controller service summary, and per-test results
+2. For each changed flow that has a test YAML (`flows/<bucket>/tests/test_<flow-name>.yaml`):
+   - **Provisions an ephemeral runtime** named `CI_<FLOW>_<PR>_<RUN_ID>` with the configuration from the test YAML (node type, network rules, registries, etc.)
+   - **Uploads custom NARs** from GitHub Releases if specified in the test YAML's `nars` field
+   - **Deploys the flow** from the PR branch as a process group on the runtime
+   - **Applies parameters and assets** from the test YAML's `flow` section
+   - **Fetches the auto-provisioned Snowflake Parameter Provider** to inject secrets from Snowflake
+   - **Waits** for the flow to process data (60 seconds)
+   - **Runs validation tests** (`flows/<bucket>/tests/test_<flow-name>.py`) against the deployed process group
+   - **Tears down** the ephemeral runtime (unless the comment includes "do not clean")
+3. **Posts a comment** on the PR with per-test results and failure details
+4. **Creates a Check Run** that blocks the PR merge if tests fail
 
-### Configuration
+### Test YAML Configuration
 
-The target runtime is configured via a GitHub Environment named `snowflake-runtime-ci`, which provides:
-- `SNOWFLAKE_RUNTIME_URL` — the Openflow runtime endpoint
-- `SNOWFLAKE_RUNTIME_PAT` — a PAT with permission to deploy to the runtime
+Each flow that needs CI testing has a `flows/<bucket>/tests/test_<flow-name>.yaml` file following the [CI runtime schema](../scripts/ci/ci-runtime-schema.json). Key fields:
+
+| Field | Description |
+|-------|-------------|
+| `github_environment` | GitHub Environment holding Snowflake secrets |
+| `deployment` | Existing Openflow deployment to create the ephemeral runtime in |
+| `database` / `schema` | Where the runtime is scoped |
+| `node_type` | Runtime size (`SMALL`, `MEDIUM`, `LARGE`) |
+| `execute_as_role` | Snowflake role for runtime data access |
+| `network_rules` | Egress rules needed by the flow under test |
+| `flow_registries` | Git registry clients to configure |
+| `nars` | Custom NARs to upload (URLs or `${GITHUB_RELEASES}/` references) |
+| `sensitive_param_pattern` | Regex for classifying auto-provisioned provider parameters as sensitive |
+| `flow.parameters` | Parameter values to apply after deployment |
+| `flow.assets` | Files to download and bind as parameter context assets |
+
+### GitHub Environment Secrets
+
+The GitHub Environment referenced by `github_environment` must provide:
+- `SNOWFLAKE_PAT` — Snowflake PAT for provisioning the ephemeral runtime
+- `NIFI_RUNTIME_PAT` — PAT for NiFi REST API operations
+- `NIFIHUB_REGISTRY_PAT` — GitHub PAT for the Flow Registry Client
 
 ---
 
